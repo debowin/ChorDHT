@@ -246,9 +246,8 @@ public class NodeHandler implements NodeService.Iface {
                 return fingerTable.get(i).nodeInfo;
             }
         }
-        System.out.printf("findClosestPrecedingFinger(%d) returns %s\n", query_id,
-                String.join(",", address, String.valueOf(port), String.valueOf(id)));
-        return String.join(",", address, String.valueOf(port), String.valueOf(id));
+        System.out.printf("findClosestPrecedingFinger(%d) returns %s\n", query_id, predecessor);
+        return predecessor;
     }
 
     @Override
@@ -329,7 +328,7 @@ public class NodeHandler implements NodeService.Iface {
             return (query > rangeStart || query < rangeEnd);
         } else {
             // boundary condition
-            return true;
+            return false;
         }
     }
 }

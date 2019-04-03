@@ -41,10 +41,12 @@ public class SuperNodeHandler implements SuperNodeService.Iface {
         String newNodeInfo = address + "," + port + "," + nodeId;
 
         if(nodeInfos.isEmpty()){
+            // return the same nodeInfo if its the first one
             nodeInfos.add(newNodeInfo);
             return new JoinResponse(nodeId, newNodeInfo);
         } else {
-            String neighborNodeInfo = nodeInfos.get(nodeInfos.size() - 1);
+            // get a random node from the existing DHT
+            String neighborNodeInfo = GetRandomDHTNode();
             nodeInfos.add(newNodeInfo);
             return new JoinResponse(nodeId, neighborNodeInfo);
         }
@@ -63,6 +65,10 @@ public class SuperNodeHandler implements SuperNodeService.Iface {
     public String GetNode() throws TException {
         if (nodeInfos.size() < dhtSize)
             return "NACK";
+        return GetRandomDHTNode();
+    }
+
+    private String GetRandomDHTNode() {
         Random rand = new Random();
         int nodeIndex = rand.nextInt(nodeInfos.size());
         return nodeInfos.get(nodeIndex);
