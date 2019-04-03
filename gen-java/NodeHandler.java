@@ -81,6 +81,7 @@ public class NodeHandler implements NodeService.Iface {
                 // responsibility begins from the predecessor's id (exclusive)
                 id_start = neighborNodeID;
                 initFingerTable(neighborNodeInfo);
+
                 // update successor's predecessor
                 String[] successorNodeInfo = successor.split("\\s*,\\s*");
                 TTransport ntransport = new TSocket(successorNodeInfo[0], Integer.valueOf(successorNodeInfo[1]));
@@ -90,18 +91,10 @@ public class NodeHandler implements NodeService.Iface {
                 nclient.updatePredecessor(String.join(",", address, String.valueOf(port), String.valueOf(id)));
                 ntransport.close();
 
-                // update predecessor's successor
-                String[] predecessorNodeInfo = predecessor.split("\\s*,\\s*");
-                ntransport = new TSocket(predecessorNodeInfo[0], Integer.valueOf(predecessorNodeInfo[1]));
-                ntransport.open();
-                protocol = new TBinaryProtocol(ntransport);
-                nclient = new NodeService.Client(protocol);
-                nclient.updateSuccessor(String.join(",", address, String.valueOf(port), String.valueOf(id)));
-                ntransport.close();
                 // update other nodes' finger tables
                 for (int i = 0; i < mbits; i++) {
                     // find the last node pred whose ith finger might be current node
-                    String[] pred = findPredecessor((id - (int) Math.pow(2, i) + keySpace) % keySpace).split("\\s*,\\s*");
+                    String[] pred = findPredecessor((id - (int) Math.pow(2, i) + keySpace + 1) % keySpace).split("\\s*,\\s*");
                     if (!pred[0].equals(address) || !pred[1].equals(String.valueOf(port))) {
                         // no need to update own finger table
                         ntransport = new TSocket(pred[0], Integer.valueOf(pred[1]));
@@ -124,7 +117,10 @@ public class NodeHandler implements NodeService.Iface {
     }
 
     private void printNodeDetails() {
-        System.out.printf("Node %d:\nFinger Table:\nStart\tEnd\tNode\n", id);
+        System.out.printf("\t\t\t<===*******[NODE %d Details]*******===>\n", id);
+        System.out.printf("\t\t\t\tKeySpace (%d, %d]\n\t\tPredecessor\t\t\t\tSuccessor\n", id_start, id);
+        System.out.printf("%s\t%s\n", predecessor, successor);
+        System.out.println("Finger Table\nStart\tEnd\tNode");
         for (int i = 0; i < mbits; i++) {
             System.out.printf("%d\t%d\t%s\n", fingerTable.get(i).start,
                     fingerTable.get(i).end, fingerTable.get(i).nodeInfo);
@@ -277,13 +273,15 @@ public class NodeHandler implements NodeService.Iface {
         System.out.printf("updateFingerTable(%s, %d)\n", successor_, i_);
         Integer successorID = Integer.valueOf(successor_.split("\\s*,\\s*")[2]);
         Integer iFingerID = Integer.valueOf(fingerTable.get(i_).nodeInfo.split("\\s*,\\s*")[2]);
-        if (belongsToRange(successorID, (id - 1 + keySpace) % keySpace, iFingerID)) { //[)
+        if (belongsToRange(successorID, (id - 1 + keySpace) % keySpace, iFingerID)
+                && successorID >= fingerTable.get(i_).start) { //[)
             fingerTable.get(i_).nodeInfo = successor_;
+            if (i_ == 0) {
+                // update successor if needed
+                successor = successor_;
+            }
             String[] pred = predecessor.split("\\s*,\\s*");
-            if (pred[0].equals(address) && pred[1].equals(String.valueOf(port))) {
-                // local procedure call
-                updateFingerTable(successor_, i_);
-            } else if (!String.join(",", pred).equals(successor_)) {
+            if (!String.join(",", pred).equals(successor_)) {
                 // make sure predecessor is not the successor_ (avoid redundancy)
                 // remote procedure call
                 TTransport transport = new TSocket(pred[0], Integer.valueOf(pred[1]));
