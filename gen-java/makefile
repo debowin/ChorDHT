@@ -1,4 +1,5 @@
 JFLAGS = -cp
+JFLAGS_RUN = -Xmx1g -Xss8192k
 JVM = java
 JC = javac
 DEST = .
@@ -21,12 +22,12 @@ clean:
 	$(RM) *.class
 
 sn: classes
-	$(JVM) $(JFLAGS) $(CLASSPATH) SuperNode
+	$(JVM) $(JFLAGS_RUN) $(JFLAGS) $(CLASSPATH) SuperNode
 
 n: classes
-	$(JVM) $(JFLAGS) $(CLASSPATH) Node $(NUM)
+	$(JVM) $(JFLAGS_RUN) $(JFLAGS) $(CLASSPATH) Node $(NUM)
 
 cli: classes
-	$(JVM) $(JFLAGS) $(CLASSPATH) Client
+	$(JVM) $(JFLAGS_RUN) $(JFLAGS) $(CLASSPATH) Client $(FILE)
 
 .PHONY: sn n cli

@@ -26,9 +26,12 @@ service NodeService {
     string getSuccessor(),
     string getPredecessor(),
     // end
+    // start: setters
     void updateFingerTable(1: string successor, 2: i32 i_),
-    void updateSuccessor(1: string successor_),
     void updatePredecessor(1: string predecessor_),
+    // end
+    // start: functionalities
     string set_(1: string bookTitle, 2: string genre), // return trail
-    GetResponse get_(1: string bookTitle) // return genre, trail
+    GetResponse get_(1: string bookTitle), // return genre, trail
+    list<string> desc(1: i32 start_id)
 }

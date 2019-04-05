@@ -32,7 +32,7 @@ public class Node {
 
     private static void startThreadPoolServer(Integer nodeIndex) {
         try {
-            Integer serverPort = Integer.valueOf(prop.getProperty("node.port"));
+            Integer serverPort = Integer.valueOf(prop.getProperty("node.ports").split("\\s*,\\s*")[nodeIndex]);
             // Create Thrift server socket as a thread pool
             TServerTransport serverTransport = new TServerSocket(serverPort);
             TThreadPoolServer.Args args = new TThreadPoolServer.Args(serverTransport);

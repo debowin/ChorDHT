@@ -63,12 +63,15 @@ public class SuperNodeHandler implements SuperNodeService.Iface {
 
     @Override
     public String GetNode() throws TException {
-        if (nodeInfos.size() < dhtSize)
+        if (!joinInProcess.equals("") || nodeInfos.size() < dhtSize) {
+            // DHT isn't complete yet.
             return "NACK";
+        }
         return GetRandomDHTNode();
     }
 
     private String GetRandomDHTNode() {
+        // return a random node from DHT
         Random rand = new Random();
         int nodeIndex = rand.nextInt(nodeInfos.size());
         return nodeInfos.get(nodeIndex);

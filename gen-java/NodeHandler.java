@@ -4,8 +4,11 @@ import org.apache.thrift.protocol.TProtocol;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 
-import java.util.ArrayList;
-import java.util.Properties;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.*;
 
 public class NodeHandler implements NodeService.Iface {
     class FingerTableEntry {
@@ -22,18 +25,17 @@ public class NodeHandler implements NodeService.Iface {
     private Integer mbits;
     private Integer keySpace;
     private ArrayList<FingerTableEntry> fingerTable;
+    private HashMap<String, String> bookTitleGenreMapping;
     private String successor;
     private String predecessor;
-    // own interval of responsibility
-    private Integer id_start; // exclusive
-    // ends at own id (inclusive)
 
     NodeHandler(Properties properties, Integer nodeNumber) {
         prop = properties;
         address = prop.getProperty("node.addresses").split("\\s*,\\s*")[nodeNumber];
-        port = Integer.valueOf(prop.getProperty("node.port"));
+        port = Integer.valueOf(prop.getProperty("node.ports").split("\\s*,\\s*")[nodeNumber]);
         mbits = Integer.valueOf(prop.getProperty("nodes.mbits"));
         keySpace = (int) Math.pow(2, mbits);
+        bookTitleGenreMapping = new HashMap<>();
 
         // Ask to join the DHT
         joinDHT();
@@ -41,24 +43,32 @@ public class NodeHandler implements NodeService.Iface {
 
     private void joinDHT() {
         try {
-            String superNodeAddress = prop.getProperty("supernode.address");
-            Integer superNodePort = Integer.valueOf(prop.getProperty("supernode.port"));
-            TTransport sntransport = new TSocket(superNodeAddress, superNodePort);
-
-            sntransport.open();
-            TProtocol protocol = new TBinaryProtocol(sntransport);
-            SuperNodeService.Client snclient = new SuperNodeService.Client(protocol);
             JoinResponse joinResponse;
-            Long waitDelay = Long.parseLong(prop.getProperty("node.wait"));
-            do {
-                // repeat until join request is granted
-                joinResponse = snclient.Join(address, port);
-                Thread.sleep(waitDelay);
-            } while (joinResponse.id == -1);
+            TTransport sntransport;
+            TProtocol protocol;
+            SuperNodeService.Client snclient;
+            try {
+                String superNodeAddress = prop.getProperty("supernode.address");
+                Integer superNodePort = Integer.valueOf(prop.getProperty("supernode.port"));
+                sntransport = new TSocket(superNodeAddress, superNodePort);
+
+                sntransport.open();
+                protocol = new TBinaryProtocol(sntransport);
+                snclient = new SuperNodeService.Client(protocol);
+                Long waitDelay = Long.parseLong(prop.getProperty("node.wait"));
+                do {
+                    // repeat until join request is granted
+                    joinResponse = snclient.Join(address, port);
+                    Thread.sleep(waitDelay);
+                } while (joinResponse.id == -1);
+            } catch (TException e){
+                System.out.println("Error connecting to the SuperNode!\n");
+                System.exit(-1);
+                return;
+            }
             String[] neighborNodeInfo = joinResponse.nodeInfo.split("\\s*,\\s*");
             String neighborNodeAddress = neighborNodeInfo[0];
             Integer neighborNodePort = Integer.valueOf(neighborNodeInfo[1]);
-            Integer neighborNodeID = Integer.valueOf(neighborNodeInfo[2]);
             id = joinResponse.id;
             // build finger table
             fingerTable = new ArrayList<>();
@@ -71,15 +81,13 @@ public class NodeHandler implements NodeService.Iface {
             if (neighborNodeAddress.equals(address) && neighborNodePort.equals(port)) {
                 // if first node to join the DHT
                 predecessor = joinResponse.nodeInfo;
-                id_start = id;
                 // fill up the finger table with the same node
                 for (int i = 0; i < mbits; i++) {
                     fingerTable.get(i).nodeInfo = joinResponse.nodeInfo;
                 }
                 successor = fingerTable.get(0).nodeInfo;
             } else {
-                // responsibility begins from the predecessor's id (exclusive)
-                id_start = neighborNodeID;
+
                 initFingerTable(neighborNodeInfo);
 
                 // update successor's predecessor
@@ -110,21 +118,30 @@ public class NodeHandler implements NodeService.Iface {
             System.out.println("DHT Join Completed Successfully!");
             snclient.PostJoin(address, port);
             sntransport.close();
-            printNodeDetails();
+            System.out.print(getNodeDetails());
         } catch (TException | InterruptedException e) {
             e.printStackTrace();
         }
     }
 
-    private void printNodeDetails() {
-        System.out.printf("\t\t\t<===*******[NODE %d Details]*******===>\n", id);
-        System.out.printf("\t\t\t\tKeySpace (%d, %d]\n\t\tPredecessor\t\t\t\tSuccessor\n", id_start, id);
-        System.out.printf("%s\t%s\n", predecessor, successor);
-        System.out.println("Finger Table\nStart\tEnd\tNode");
+    private String getNodeDetails() {
+        StringBuilder output = new StringBuilder(String.format("<===*******[NODE %d Details]*******===>\n" +
+                        "KeySpace (%d, %d] - %d Entries\n\t\tPredecessor\t\t\t\tSuccessor\n" +
+                        "%s\t%s\n" +
+                        "Finger Table\nStart\tEnd\tNode\n", id, Integer.valueOf(predecessor.split("\\s*,\\s*")[2]), id,
+                bookTitleGenreMapping.size(), predecessor, successor));
         for (int i = 0; i < mbits; i++) {
-            System.out.printf("%d\t%d\t%s\n", fingerTable.get(i).start,
-                    fingerTable.get(i).end, fingerTable.get(i).nodeInfo);
+            output.append(String.format("%d\t%d\t%s\n", fingerTable.get(i).start,
+                    fingerTable.get(i).end, fingerTable.get(i).nodeInfo));
         }
+        if(!bookTitleGenreMapping.isEmpty()) {
+            // also include entry table if not empty
+            output.append(String.format("Entry Table\n%30s\t%15s\n", "Book Title", "Genre"));
+            for (Map.Entry<String, String> kv : bookTitleGenreMapping.entrySet()) {
+                output.append(String.format("%30s\t%15s\n", kv.getKey(), kv.getValue()));
+            }
+        }
+        return output.toString();
     }
 
     private void initFingerTable(String[] neighborNodeInfo) throws TException {
@@ -188,6 +205,7 @@ public class NodeHandler implements NodeService.Iface {
         NodeService.Client client = new NodeService.Client(protocol);
         String successor_ = client.getSuccessor();
         System.out.printf("findSuccessor(%d) returns %s\n", query_id, successor_);
+        transport.close();
         return successor_;
     }
 
@@ -291,14 +309,7 @@ public class NodeHandler implements NodeService.Iface {
                 transport.close();
             }
         }
-        printNodeDetails();
-    }
-
-    @Override
-    public void updateSuccessor(String successor_) throws TException {
-        System.out.printf("updateSuccessor(%s)\n", successor_);
-        fingerTable.get(0).nodeInfo = successor_;
-        successor = successor_;
+        System.out.print(getNodeDetails());
     }
 
     @Override
@@ -309,14 +320,83 @@ public class NodeHandler implements NodeService.Iface {
 
     @Override
     public String set_(String bookTitle, String genre) throws TException {
-        return null;
+        Integer key = intSHA1ModuloHash(bookTitle, keySpace);
+        System.out.printf("set_(%s, %s) - %d\n", bookTitle, genre, key);
+        String trail = address + "," + port + "," + id;
+        if (belongsToRange(key, Integer.valueOf(predecessor.split("\\s*,\\s*")[2]),
+                (id + 1) % keySpace)) { //(]
+            // if the key is this node's responsibility
+            bookTitleGenreMapping.put(bookTitle, genre);
+            return trail;
+        } else {
+            // find the closest finger table entry to the key
+            String[] nextNodeInfo = {};
+            for (int i = mbits - 1; i > -1; i--) {
+                if (belongsToRange(key, (fingerTable.get(i).start - 1 + keySpace) % keySpace,
+                        fingerTable.get(i).end)) { // [)
+                    nextNodeInfo = fingerTable.get(i).nodeInfo.split("\\s*,\\s*");
+                }
+            }
+            TTransport transport = new TSocket(nextNodeInfo[0], Integer.valueOf(nextNodeInfo[1]));
+            transport.open();
+            TProtocol protocol = new TBinaryProtocol(transport);
+            NodeService.Client client = new NodeService.Client(protocol);
+            trail += " -> " + client.set_(bookTitle, genre);
+            transport.close();
+            return trail;
+        }
     }
 
     @Override
     public GetResponse get_(String bookTitle) throws TException {
-        return null;
+        Integer key = intSHA1ModuloHash(bookTitle, keySpace);
+        System.out.printf("get_(%s) - %d\n", bookTitle, key);
+        String trail = address + "," + port + "," + id;
+        if (belongsToRange(key, Integer.valueOf(predecessor.split("\\s*,\\s*")[2]),
+                (id + 1) % keySpace)) { //(]
+            // if the key is this node's responsibility
+            String genre = bookTitleGenreMapping.get(bookTitle);
+            return new GetResponse(genre, trail);
+        } else {
+            // find the closest finger table entry to the key
+            String[] nextNodeInfo = {};
+            for (int i = mbits - 1; i > -1; i--) {
+                if (belongsToRange(key, (fingerTable.get(i).start - 1 + keySpace) % keySpace,
+                        fingerTable.get(i).end)) { // [)
+                    nextNodeInfo = fingerTable.get(i).nodeInfo.split("\\s*,\\s*");
+                }
+            }
+            TTransport transport = new TSocket(nextNodeInfo[0], Integer.valueOf(nextNodeInfo[1]));
+            transport.open();
+            TProtocol protocol = new TBinaryProtocol(transport);
+            NodeService.Client client = new NodeService.Client(protocol);
+            GetResponse getResponse = client.get_(bookTitle);
+            getResponse.trail = trail + " -> " + getResponse.trail;
+            transport.close();
+            return getResponse;
+        }
     }
 
+    @Override
+    public List<String> desc(int start_id) throws TException {
+        System.out.printf("desc(%d)\n", start_id);
+        List<String> detailList;
+        String[] successorNodeInfo = successor.split("\\s*,\\s*");
+        if(start_id == Integer.valueOf(successorNodeInfo[2])) {
+            detailList = new ArrayList<>();
+            detailList.add(getNodeDetails());
+            return detailList;
+        }
+        TTransport transport = new TSocket(successorNodeInfo[0], Integer.valueOf(successorNodeInfo[1]));
+        transport.open();
+        TProtocol protocol = new TBinaryProtocol(transport);
+        NodeService.Client client = new NodeService.Client(protocol);
+        detailList = client.desc(start_id);
+        detailList.add(getNodeDetails());
+        return detailList;
+    }
+
+    // Helper Methods
     private Boolean belongsToRange(int query, int rangeStart, int rangeEnd) {
         if ((rangeEnd - rangeStart + keySpace) % keySpace == 1) {
             // eg. (15,0), (3,4) then entire space becomes the range
@@ -329,6 +409,18 @@ public class NodeHandler implements NodeService.Iface {
         } else {
             // boundary condition
             return false;
+        }
+    }
+
+    private static Integer intSHA1ModuloHash(String input, int modulo) {
+        try {
+            MessageDigest msgDigest = MessageDigest.getInstance("SHA-1");
+            msgDigest.update(input.getBytes(StandardCharsets.UTF_8), 0, input.length());
+            ByteBuffer bb = ByteBuffer.wrap(msgDigest.digest());
+            return (int) Math.abs(bb.getLong() % modulo);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+            return -1;
         }
     }
 }
